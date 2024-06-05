@@ -11,20 +11,19 @@ def build_patch(patchedBlocks, weight=1.0, sigma_start=0.0, sigma_end=1.0):
     def prompt_injection_patch(n, context_attn1: torch.Tensor, value_attn1, extra_options):
         (block, block_index) = extra_options.get('block', (None,None))
         sigma = extra_options["sigmas"].detach().cpu()[0].item() if 'sigmas' in extra_options else 999999999.9
+        
+        batch_prompt = n.shape[0] // len(extra_options["cond_or_uncond"])
 
         if sigma <= sigma_start and sigma >= sigma_end:
             if (block and f'{block}:{block_index}' in patchedBlocks and patchedBlocks[f'{block}:{block_index}']):
-                c = context_attn1[0]
+                c = context_attn1[0].unsqueeze(0)
+                b = patchedBlocks[f'{block}:{block_index}'][0][0].to(context_attn1.device)
                 if c.dim() == 2:
                     c = c.unsqueeze(0)
-                cond = torch.stack(
-                    (
-                        c,
-                        patchedBlocks[f'{block}:{block_index}'][0][0].to(context_attn1.device)
-                    )
-                ).to(dtype=context_attn1.dtype)
+                out = torch.stack((c, b))
+                out = out.repeat(1, batch_prompt, 1, 1) * weight
 
-                return n, cond, cond * weight
+                return n, out, out 
 
         return n, context_attn1, value_attn1
     return prompt_injection_patch
