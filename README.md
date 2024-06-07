@@ -6,7 +6,7 @@ This custom node for ComfyUI allows you to inject specific prompts at specific b
 
 The code is very basic, experimental and prossibly buggy. It's a very interesting proof of concept and I will expand it if anything good can be done with it. 
 
-At the moment this is a fork of [DataCTE](https://github.com/DataCTE/prompt_injection)'s repository, I'm contact with them and we'll evaluate a merge when the code is stable.
+At the moment this is a fork of [DataCTE](https://github.com/DataCTE/prompt_injection)'s repository, I'm in contact with them and we'll evaluate a merge when the code is stable.
 
 ## Credits
 
