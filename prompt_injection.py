@@ -16,14 +16,8 @@ def build_patch(patchedBlocks, weight=1.0, sigma_start=0.0, sigma_end=1.0):
                 else:
                     c = context_attn1[0][0].unsqueeze(0)
                 b = patchedBlocks[f'{block}:{block_index}'][0][0].repeat(c.shape[0], 1, 1).to(context_attn1.device)
-                #print(patchedBlocks[f'{block}:{block_index}'][0][0].shape)
-                #print(c.shape, b.shape, n.shape, context_attn1.shape)
                 out = torch.stack((c, b)).to(dtype=context_attn1.dtype) * weight
                 out = out.repeat(1, batch_prompt, 1, 1) * weight
-                #print(out.shape)
-
-                #out = torch.stack((c, b)).to(dtype=context_attn1.dtype)
-                #out = out.repeat(1, batch_prompt, 1, 1) * weight
 
                 return n, out, out 
 
