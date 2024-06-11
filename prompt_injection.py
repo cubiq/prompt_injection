@@ -1,12 +1,12 @@
 import comfy.model_patcher
 import comfy.samplers
 import torch
+import torch.nn.functional as F
 
-def build_patch(patchedBlocks, weight=1.0, sigma_start=0.0, sigma_end=1.0):
+def build_patch(patchedBlocks, weight=1.0, sigma_start=0.0, sigma_end=1.0, noise=0.0):
     def prompt_injection_patch(n, context_attn1: torch.Tensor, value_attn1, extra_options):
         (block, block_index) = extra_options.get('block', (None,None))
         sigma = extra_options["sigmas"].detach().cpu()[0].item() if 'sigmas' in extra_options else 999999999.9
-        
         batch_prompt = n.shape[0] // len(extra_options["cond_or_uncond"])
 
         if sigma <= sigma_start and sigma >= sigma_end:
@@ -16,10 +16,50 @@ def build_patch(patchedBlocks, weight=1.0, sigma_start=0.0, sigma_end=1.0):
                 else:
                     c = context_attn1[0][0].unsqueeze(0)
                 b = patchedBlocks[f'{block}:{block_index}'][0][0].repeat(c.shape[0], 1, 1).to(context_attn1.device)
-                out = torch.stack((c, b)).to(dtype=context_attn1.dtype) * weight
+                if noise != 0.0:
+                    b = b + torch.randn_like(b) * noise
+
+                padding = abs(c.shape[1] - b.shape[1])
+                if c.shape[1] > b.shape[1]:
+                    b = F.pad(b, (0, 0, 0, padding), mode='constant', value=0)
+                elif c.shape[1] < b.shape[1]:
+                    c = F.pad(c, (0, 0, 0, padding), mode='constant', value=0)
+
+                out = torch.stack((c, b)).to(dtype=context_attn1.dtype)
                 out = out.repeat(1, batch_prompt, 1, 1) * weight
 
                 return n, out, out 
+
+        return n, context_attn1, value_attn1
+    return prompt_injection_patch
+
+def build_patch_by_index(patchedBlocks, weight=1.0, sigma_start=0.0, sigma_end=1.0, noise=0.0):
+    def prompt_injection_patch(n, context_attn1: torch.Tensor, value_attn1, extra_options):
+        idx = extra_options["transformer_index"]
+        sigma = extra_options["sigmas"].detach().cpu()[0].item() if 'sigmas' in extra_options else 999999999.9
+        batch_prompt = n.shape[0] // len(extra_options["cond_or_uncond"])
+
+        if sigma <= sigma_start and sigma >= sigma_end:
+            if patchedBlocks[idx] is not None:
+                if context_attn1.dim() == 3:
+                    c = context_attn1[0].unsqueeze(0)
+                else:
+                    c = context_attn1[0][0].unsqueeze(0)
+
+                b = patchedBlocks[idx][0][0].repeat(c.shape[0], 1, 1).to(context_attn1.device)
+                if noise != 0.0:
+                    b = b + torch.randn_like(b) * noise
+
+                padding = abs(c.shape[1] - b.shape[1])
+                if c.shape[1] > b.shape[1]:
+                    b = F.pad(b, (0, 0, 0, padding), mode='constant', value=0)
+                elif c.shape[1] < b.shape[1]:
+                    c = F.pad(c, (0, 0, 0, padding), mode='constant', value=0)
+
+                out = torch.stack((c, b)).to(dtype=context_attn1.dtype)
+                out = out.repeat(1, batch_prompt, 1, 1) * weight
+
+                return n, out, out
 
         return n, context_attn1, value_attn1
     return prompt_injection_patch
@@ -47,6 +87,7 @@ class PromptInjection:
                 "weight": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 5.0, "step": 0.05}),
                 "start_at": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001}),
                 "end_at": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001}),
+                "noise": ("FLOAT", {"default": 0.0, "min": -5.0, "max": 5.0, "step": 0.05}),
             }
         }
 
@@ -55,7 +96,7 @@ class PromptInjection:
 
     CATEGORY = "advanced/model"
 
-    def patch(self, model: comfy.model_patcher.ModelPatcher, all=None, input_4=None, input_5=None, input_7=None, input_8=None, middle_0=None, output_0=None, output_1=None, output_2=None, output_3=None, output_4=None, output_5=None, weight=1.0, start_at=0.0, end_at=1.0):
+    def patch(self, model: comfy.model_patcher.ModelPatcher, all=None, input_4=None, input_5=None, input_7=None, input_8=None, middle_0=None, output_0=None, output_1=None, output_2=None, output_3=None, output_4=None, output_5=None, weight=1.0, start_at=0.0, end_at=1.0, noise=0.0):
         if not any((all, input_4, input_5, input_7, input_8, middle_0, output_0, output_1, output_2, output_3, output_4, output_5)):
             return (model,)
 
@@ -72,9 +113,68 @@ class PromptInjection:
                 if value is not None:
                     patchedBlocks[f"{block}:{index}"] = value
 
-        m.set_model_attn2_patch(build_patch(patchedBlocks, weight=weight, sigma_start=sigma_start, sigma_end=sigma_end))
+        m.set_model_attn2_patch(build_patch(patchedBlocks, weight=weight, sigma_start=sigma_start, sigma_end=sigma_end, noise=noise))
 
         return (m,)
+
+class PromptInjectionIdx:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "model": ("MODEL",),
+            },
+            "optional": {
+                "all": ("CONDITIONING",),
+                "idx_0": ("CONDITIONING",),
+                "idx_1": ("CONDITIONING",),
+                "idx_2": ("CONDITIONING",),
+                "idx_3": ("CONDITIONING",),
+                "idx_4": ("CONDITIONING",),
+                "idx_5": ("CONDITIONING",),
+                "idx_6": ("CONDITIONING",),
+                "idx_7": ("CONDITIONING",),
+                "idx_8": ("CONDITIONING",),
+                "idx_9": ("CONDITIONING",),
+                "idx_10": ("CONDITIONING",),
+                "weight": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 5.0, "step": 0.05}),
+                "start_at": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001}),
+                "end_at": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001}),
+                "noise": ("FLOAT", {"default": 0.0, "min": -5.0, "max": 5.0, "step": 0.05}),
+            }
+        }
+
+    RETURN_TYPES = ("MODEL",)
+    FUNCTION = "patch"
+
+    CATEGORY = "advanced/model"
+
+    def patch(self, model, all=None, idx_0=None, idx_1=None, idx_2=None, idx_3=None, idx_4=None, idx_5=None, idx_6=None, idx_7=None, idx_8=None, idx_9=None, idx_10=None, idx_11=None, idx_12=None, idx_13=None, idx_14=None, idx_15=None, weight=1.0, start_at=0.0, end_at=1.0, noise=0.0):
+        if not any((all, idx_0, idx_1, idx_2, idx_3, idx_4, idx_5, idx_6, idx_7, idx_8, idx_9, idx_10, idx_11, idx_12, idx_13, idx_14, idx_15)):
+            return (model,)
+
+        m = model.clone()
+        sigma_start = m.get_model_object("model_sampling").percent_to_sigma(start_at)
+        sigma_end = m.get_model_object("model_sampling").percent_to_sigma(end_at)
+
+        patchedBlocks = {
+            0: idx_0 if idx_0 is not None else all,
+            1: idx_1 if idx_1 is not None else all,
+            2: idx_2 if idx_2 is not None else all,
+            3: idx_3 if idx_3 is not None else all,
+            4: idx_4 if idx_4 is not None else all,
+            5: idx_5 if idx_5 is not None else all,
+            6: idx_6 if idx_6 is not None else all,
+            7: idx_7 if idx_7 is not None else all,
+            8: idx_8 if idx_8 is not None else all,
+            9: idx_9 if idx_9 is not None else all,
+            10: idx_10 if idx_10 is not None else all,
+        }
+
+        m.set_model_attn2_patch(build_patch_by_index(patchedBlocks, weight=weight, sigma_start=sigma_start, sigma_end=sigma_end, noise=noise))
+
+        return (m,)
+
 
 class SimplePromptInjection:
     @classmethod
@@ -151,12 +251,14 @@ class AdvancedPromptInjection:
 
 NODE_CLASS_MAPPINGS = {
     "PromptInjection": PromptInjection,
+    "PromptInjectionIdx": PromptInjectionIdx,
     "SimplePromptInjection": SimplePromptInjection,
     "AdvancedPromptInjection": AdvancedPromptInjection
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "PromptInjection": "Attn2 Prompt Injection",
+    "PromptInjectionIdx": "Attn2 Prompt Injection (by index)",
     "SimplePromptInjection": "Attn2 Prompt Injection (simple)",
     "AdvancedPromptInjection": "Attn2 Prompt Injection (advanced)"
 }
