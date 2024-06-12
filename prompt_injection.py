@@ -40,7 +40,7 @@ def build_patch_by_index(patchedBlocks, weight=1.0, sigma_start=0.0, sigma_end=1
         batch_prompt = n.shape[0] // len(extra_options["cond_or_uncond"])
 
         if sigma <= sigma_start and sigma >= sigma_end:
-            if patchedBlocks[idx] is not None:
+            if idx in patchedBlocks and patchedBlocks[idx] is not None:
                 if context_attn1.dim() == 3:
                     c = context_attn1[0].unsqueeze(0)
                 else:
@@ -137,6 +137,11 @@ class PromptInjectionIdx:
                 "idx_8": ("CONDITIONING",),
                 "idx_9": ("CONDITIONING",),
                 "idx_10": ("CONDITIONING",),
+                "idx_11_sd15": ("CONDITIONING",),
+                "idx_12_sd15": ("CONDITIONING",),
+                "idx_13_sd15": ("CONDITIONING",),
+                "idx_14_sd15": ("CONDITIONING",),
+                "idx_15_sd15": ("CONDITIONING",),
                 "weight": ("FLOAT", {"default": 1.0, "min": -2.0, "max": 5.0, "step": 0.05}),
                 "start_at": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.001}),
                 "end_at": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.001}),
@@ -149,13 +154,14 @@ class PromptInjectionIdx:
 
     CATEGORY = "advanced/model"
 
-    def patch(self, model, all=None, idx_0=None, idx_1=None, idx_2=None, idx_3=None, idx_4=None, idx_5=None, idx_6=None, idx_7=None, idx_8=None, idx_9=None, idx_10=None, idx_11=None, idx_12=None, idx_13=None, idx_14=None, idx_15=None, weight=1.0, start_at=0.0, end_at=1.0, noise=0.0):
-        if not any((all, idx_0, idx_1, idx_2, idx_3, idx_4, idx_5, idx_6, idx_7, idx_8, idx_9, idx_10, idx_11, idx_12, idx_13, idx_14, idx_15)):
+    def patch(self, model, all=None, idx_0=None, idx_1=None, idx_2=None, idx_3=None, idx_4=None, idx_5=None, idx_6=None, idx_7=None, idx_8=None, idx_9=None, idx_10=None, idx_11_sd15=None, idx_12_sd15=None, idx_13_sd15=None, idx_14_sd15=None, idx_15_sd15=None, weight=1.0, start_at=0.0, end_at=1.0, noise=0.0):
+        if not any((all, idx_0, idx_1, idx_2, idx_3, idx_4, idx_5, idx_6, idx_7, idx_8, idx_9, idx_10, idx_11_sd15, idx_12_sd15, idx_13_sd15, idx_14_sd15, idx_15_sd15)):
             return (model,)
-
+        
         m = model.clone()
         sigma_start = m.get_model_object("model_sampling").percent_to_sigma(start_at)
         sigma_end = m.get_model_object("model_sampling").percent_to_sigma(end_at)
+        is_sdxl = isinstance(model.model, (comfy.model_base.SDXL, comfy.model_base.SDXLRefiner, comfy.model_base.SDXL_instructpix2pix))
 
         patchedBlocks = {
             0: idx_0 if idx_0 is not None else all,
@@ -169,6 +175,11 @@ class PromptInjectionIdx:
             8: idx_8 if idx_8 is not None else all,
             9: idx_9 if idx_9 is not None else all,
             10: idx_10 if idx_10 is not None else all,
+            11: idx_11_sd15 if idx_11_sd15 is not None else all if not is_sdxl else None,
+            12: idx_12_sd15 if idx_12_sd15 is not None else all if not is_sdxl else None,
+            13: idx_13_sd15 if idx_13_sd15 is not None else all if not is_sdxl else None,
+            14: idx_14_sd15 if idx_14_sd15 is not None else all if not is_sdxl else None,
+            15: idx_15_sd15 if idx_15_sd15 is not None else all if not is_sdxl else None,
         }
 
         m.set_model_attn2_patch(build_patch_by_index(patchedBlocks, weight=weight, sigma_start=sigma_start, sigma_end=sigma_end, noise=noise))
